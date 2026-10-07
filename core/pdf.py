@@ -135,7 +135,7 @@ def enrollment_pdf(enrollment):
     for idx, row in enumerate(lines, 1):
         info = row.snapshot or section_info(row.section)
         c_code = (info.get("official_code") or row.course.curricular_code or "101528")[:10]
-        c_name = (info.get("course_name") or row.course.name).upper()[:52]
+        c_name = (info.get("course_name") or row.course.name)[:52]
         c_sec_raw = str(info.get("section") or "A")
         c_section = c_sec_raw[-1:] if len(c_sec_raw) > 1 else c_sec_raw
         c_type = "T" if row.course.elective_track is None else "M"

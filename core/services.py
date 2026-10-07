@@ -33,6 +33,8 @@ def section_info(section):
         occupied = section.enrollment_lines.count()
     return {
         "id": section.id,
+        "period_id": section.period_id,
+        "period_code": section.period.code if section.period else None,
         "course_id": course.id if course else None,
         "course_name": section.raw_name or (course.name if course else ""),
         "curricular_code": course.curricular_code if course else None,
@@ -142,15 +144,10 @@ def check_course(student, course, passed, eligible=None):
     if course.pk in passed:
         raise ValidationError(f"{course.name} ya está aprobado.")
 
-    courses = list(Course.objects.filter(plan=student.plan))
-    pending = [c for c in courses if c.pk not in passed]
-    mandatory_pending = [c for c in pending if not c.elective_track]
-    first_pending_cycle = mandatory_pending[0].semester if mandatory_pending and mandatory_pending[0].semester else (pending[0].semester if pending else 1)
-    annual_start_cycle = ((first_pending_cycle - 1) // 2) * 2 + 1
-
+    course_annual_start = ((course.semester - 1) // 2) * 2 + 1 if course.semester else 1
     missing = [
         p.name for p in course.prerequisites.all()
-        if p.pk not in passed and (p.semester is None or p.semester < annual_start_cycle)
+        if p.pk not in passed and (p.semester is None or p.semester < course_annual_start)
     ]
     if missing:
         raise ValidationError(f"Faltan prerrequisitos para {course.name}: {', '.join(missing)}.")
@@ -164,8 +161,10 @@ def has_conflicts(sections):
     for s in sections:
         for m in s.meetings.all():
             for other_section, other in items:
-                if m.day == other.day and m.start < other.end and other.start < m.end:
-                    return f"Cruce entre {s.raw_name} ({s.section_code}) y {other_section.raw_name} ({other_section.section_code}), {DAYS[m.day]}."
+                # Cruce de horarios solo si pertenecen al MISMO período/semestre
+                if s.period_id == other_section.period_id:
+                    if m.day == other.day and m.start < other.end and other.start < m.end:
+                        return f"Cruce entre {s.raw_name} ({s.section_code}) y {other_section.raw_name} ({other_section.section_code}), {DAYS[m.day]}."
             items.append((s, m))
     return None
 
