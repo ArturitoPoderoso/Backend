@@ -17,68 +17,165 @@ def enrollment_pdf(enrollment):
     path = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
     if path.exists() and "DejaVu" not in pdfmetrics.getRegisteredFontNames():
         pdfmetrics.registerFont(TTFont("DejaVu", str(path)))
-    font = "DejaVu" if path.exists() else "Helvetica"
+    font_normal = "DejaVu" if path.exists() else "Helvetica"
+    font_bold = "DejaVu-Bold" if (path.exists() and "DejaVu-Bold" in pdfmetrics.getRegisteredFontNames()) else "Helvetica-Bold"
+
     out = BytesIO()
     p = canvas.Canvas(out, pagesize=landscape(A4))
     w, h = landscape(A4)
-    p.setTitle(f"Constancia de matrícula {enrollment.period.code}")
-    p.setFillColorRGB(0.12, 0.11, 0.10)
-    p.rect(0, h - 110, w, 110, stroke=0, fill=1)
-    p.setFillColorRGB(0.78, 0.29, 0.09)
-    p.rect(0, h - 114, w, 4, stroke=0, fill=1)
-    p.setFillColorRGB(1, 1, 1)
-    p.setFont(font, 15)
-    p.drawString(40, h - 42, "UNFV · FIIS")
-    p.setFont(font, 12)
-    p.drawString(40, h - 68, "CONSTANCIA DE MATRÍCULA")
-    p.setFont(font, 9)
-    p.drawString(40, h - 91, "Escuela Profesional de Ingeniería de Sistemas")
-    p.setFillColorRGB(0.1, 0.2, 0.3)
-    p.setFont(font, 9)
+
     student = enrollment.student
-    p.drawString(40, h - 138, f"Alumno: {student.full_name}     Código: {student.student_code}")
-    p.drawString(
-        40,
-        h - 157,
-        f"Plan: {student.plan.name}     Período: {enrollment.period.code}     Confirmado: {enrollment.confirmed_at:%d/%m/%Y %H:%M}     N.° matrícula: {enrollment.pk}",
-    )
-    headings = [("Código", 40), ("Curso", 120), ("Sección / salón", 420), ("Docente", 530), ("Créditos", 760)]
-    p.setFillColorRGB(0.99, 0.92, 0.86)
-    p.rect(38, h - 190, w - 76, 22, fill=1, stroke=0)
-    p.setFillColorRGB(0.1, 0.2, 0.3)
-    p.setFont(font, 8)
-    for title, x in headings:
-        p.drawString(x, h - 183, title)
-    y = h - 208
-    lines = (
+    period_code = enrollment.period.code
+    period_year = period_code[:4] if period_code else "2027"
+
+    p.setTitle(f"Constancia de Matrícula UNFV {period_year}")
+
+    # Logos
+    logo_path = Path("frontend/public/fiis-logo.png")
+    if not logo_path.exists():
+        logo_path = Path("../frontend/public/fiis-logo.png")
+
+    p.setFont(font_bold, 11)
+    p.setFillColorRGB(0, 0, 0)
+    p.drawCentredString(w / 2.0, h - 35, "FACULTAD DE INGENIERIA INDUSTRIAL Y DE SISTEMAS")
+    p.setFont(font_normal, 9.5)
+    p.drawCentredString(w / 2.0, h - 50, "OFICINA TECNICA DE SERVICIOS ACADEMICOS")
+    
+    p.setFont(font_bold, 14)
+    p.drawCentredString(w / 2.0, h - 72, f"CONSTANCIA DE MATRICULA  {period_year}")
+
+    if logo_path.exists():
+        try:
+            p.drawImage(str(logo_path), w - 90, h - 80, width=58, height=58, preserveAspectRatio=True, mask="auto")
+            p.drawImage(str(logo_path), 35, h - 80, width=58, height=58, preserveAspectRatio=True, mask="auto")
+        except Exception:
+            pass
+
+    # Datos del alumno
+    y_meta = h - 105
+    p.setFont(font_normal, 9)
+    p.drawString(38, y_meta, "Escuela")
+    p.drawString(120, y_meta, "INGENIERIA DE SISTEMAS")
+
+    plan_code = "2019" if "2019" in student.plan.name else ("2010" if "2010" in student.plan.name else "2019")
+    cycle_num = getattr(student, "official_cycle", 3) or 3
+    cycle_str = f"{cycle_num:02d}"
+
+    p.drawString(w - 200, y_meta, "Plan")
+    p.setFont(font_bold, 9)
+    p.drawString(w - 140, y_meta, plan_code)
+
+    y_meta -= 16
+    p.setFont(font_normal, 9)
+    p.drawString(38, y_meta, "Especialidad")
+    p.drawString(w - 200, y_meta, "Nivel")
+    p.setFont(font_bold, 9)
+    p.drawString(w - 140, y_meta, cycle_str)
+
+    y_meta -= 16
+    p.setFont(font_normal, 9)
+    p.drawString(38, y_meta, "Alumno")
+    p.setFont(font_bold, 9.5)
+    p.drawString(120, y_meta, student.full_name.upper())
+
+    y_meta -= 16
+    p.setFont(font_normal, 9)
+    conf_date = enrollment.confirmed_at
+    date_str = f"{conf_date:%d/%m/%y}" if conf_date else "06/10/26"
+    time_str = f"{conf_date:%H:%M:%S}" if conf_date else "13:21:08"
+    p.drawString(38, y_meta, f"Fecha         {date_str}                  Hora :  {time_str}")
+
+    p.drawString(w - 240, y_meta, "Cod Alumno")
+    p.setFont(font_bold, 13)
+    p.setFillColorRGB(0.0, 0.33, 0.95)
+    p.drawString(w - 150, y_meta - 1, student.student_code)
+    p.setFillColorRGB(0, 0, 0)
+
+    # Tabla de cursos
+    y_table = y_meta - 25
+
+    lines = list(
         enrollment.lines.select_related("section", "course")
         .prefetch_related("section__meetings")
         .order_by("course__semester", "course__name")
     )
-    for row in lines:
+
+    table_x = 35
+    table_w = w - 70
+    row_h = 16
+
+    # Cabecera azul #0080FF
+    p.setFillColorRGB(0.0, 0.5, 1.0)
+    p.rect(table_x, y_table - row_h, table_w, row_h, fill=1, stroke=0)
+
+    cols = [
+        ("Nº", table_x + 8),
+        ("Per", table_x + 35),
+        ("Código", table_x + 95),
+        ("T", table_x + 155),
+        ("S", table_x + 185),
+        ("Asignaturas", table_x + 220),
+        ("Credito", table_x + table_w - 95),
+        ("Nivel", table_x + table_w - 45),
+    ]
+
+    p.setFillColorRGB(1.0, 1.0, 1.0)
+    p.setFont(font_bold, 8.5)
+    for title, cx in cols:
+        p.drawString(cx, y_table - row_h + 4, title)
+
+    cur_y = y_table - row_h
+    p.setFont(font_normal, 8)
+    p.setFillColorRGB(0, 0, 0)
+    p.setStrokeColorRGB(0.75, 0.75, 0.75)
+    p.setLineWidth(0.4)
+
+    total_credits = 0
+
+    for idx, row in enumerate(lines, 1):
         info = row.snapshot or section_info(row.section)
-        if y < 68:
-            p.showPage()
-            y = h - 50
-            p.setFont(font, 8)
-        p.setFont(font, 7.5)
-        p.drawString(40, y, (info.get("official_code") or "SIN CÓDIGO")[:16])
-        p.drawString(120, y, info["course_name"][:43])
-        p.drawString(420, y, f"{info['section']} / {info['classroom']}"[:22])
-        p.drawString(530, y, info["teacher"][:36])
-        p.drawString(760, y, str(info.get("credits", row.course.credits) or "-"))
-        y -= 13
-        for m in info["meetings"]:
-            p.setFillColorRGB(0.32, 0.38, 0.45)
-            p.drawString(122, y, f"{m['day_name']} {m['start']}-{m['end']}")
-            y -= 12
-        p.setStrokeColorRGB(0.87, 0.9, 0.93)
-        p.line(40, y + 3, w - 40, y + 3)
-        y -= 9
-        p.setFillColorRGB(0.1, 0.2, 0.3)
-    total_credits = sum((row.snapshot or {}).get("credits", row.course.credits) or 0 for row in lines)
-    p.setFont(font, 8)
-    p.drawString(40, max(47, y - 8), f"Total: {len(lines)} cursos · {total_credits} créditos")
+        c_code = (info.get("official_code") or row.course.curricular_code or "101528")[:10]
+        c_name = (info.get("course_name") or row.course.name).upper()[:52]
+        c_sec_raw = str(info.get("section") or "A")
+        c_section = c_sec_raw[-1:] if len(c_sec_raw) > 1 else c_sec_raw
+        c_type = "T" if row.course.elective_track is None else "M"
+        c_credits = info.get("credits", row.course.credits) or 3
+        total_credits += c_credits
+        c_level = f"{(row.course.semester or 3):02d}"
+        c_per = enrollment.period.code
+
+        cur_y -= row_h
+
+        # Fila con borde
+        p.rect(table_x, cur_y, table_w, row_h, fill=0, stroke=1)
+
+        p.drawString(table_x + 8, cur_y + 4, str(idx))
+        p.drawString(table_x + 35, cur_y + 4, c_per)
+        p.drawString(table_x + 95, cur_y + 4, c_code)
+        p.drawString(table_x + 155, cur_y + 4, c_type)
+        p.drawString(table_x + 185, cur_y + 4, c_section)
+        p.drawString(table_x + 220, cur_y + 4, c_name)
+        p.drawString(table_x + table_w - 95, cur_y + 4, f"{c_credits:02d}")
+        p.drawString(table_x + table_w - 45, cur_y + 4, c_level)
+
+    # Pie de tabla azul
+    cur_y -= row_h
+    p.setFillColorRGB(0.0, 0.5, 1.0)
+    p.rect(table_x, cur_y, table_w, row_h, fill=1, stroke=0)
+
+    # Recibo box
+    p.setFillColorRGB(1.0, 1.0, 1.0)
+    p.setFont(font_bold, 8.5)
+    p.drawString(table_x + 30, cur_y + 4, "RECIBO:")
+    p.rect(table_x + 90, cur_y + 2, 70, row_h - 4, fill=1, stroke=0)
+    p.setFillColorRGB(0, 0, 0)
+    p.drawString(table_x + 110, cur_y + 4, "0.00")
+
+    # Total de créditos
+    p.setFillColorRGB(1.0, 1.0, 1.0)
+    p.setFont(font_bold, 8.5)
+    p.drawString(table_x + table_w - 190, cur_y + 4, f"TOTAL DE CREDITOS     {total_credits}")
+
     p.save()
     return out.getvalue()
 
