@@ -412,7 +412,8 @@ class ConvalidationView(APIView):
             plan_2019 = Plan.objects.filter(name__icontains="adjunta").first()
             courses_2019 = {c.curricular_code: c for c in Course.objects.filter(plan=plan_2019)}
             
-            grades = FinalGrade.objects.filter(student=student, passed=True).select_related('course')
+            grades = list(FinalGrade.objects.filter(student=student, passed=True).select_related('course'))
+            old_ids_to_delete = []
             for fg in grades:
                 code_10 = fg.course.curricular_code
                 if code_10 in CONVALIDATION_MAP:
@@ -423,6 +424,10 @@ class ConvalidationView(APIView):
                             student=student, course=c19, period=fg.period,
                             defaults={"score": fg.score, "passed": True}
                         )
+                        old_ids_to_delete.append(fg.id)
+            
+            if old_ids_to_delete:
+                FinalGrade.objects.filter(id__in=old_ids_to_delete).delete()
             
             student.plan = plan_2019
             student.save()
@@ -549,7 +554,7 @@ class Grades(APIView):
     def get(self, request):
         student = need_student(request.user)
         rows = (
-            FinalGrade.objects.filter(student=student)
+            FinalGrade.objects.filter(student=student, course__plan=student.plan)
             .select_related("course", "period")
             .order_by("period__code", "course__name")
         )
