@@ -594,7 +594,8 @@ class AdminData(APIView):
         )
         courses = [
             course_info(c)
-            for c in Course.objects.select_related("plan")
+            for c in Course.objects.filter(plan__active=True)
+            .select_related("plan")
             .prefetch_related("prerequisites")
             .order_by("semester", "name")
         ]
