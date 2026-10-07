@@ -826,6 +826,9 @@ class AdminSection(APIView):
             raise ValidationError("Se requiere una sección.")
         with transaction.atomic():
             Period.objects.select_for_update().get(pk=period.pk)
+            if not course.academic_data_verified:
+                course.academic_data_verified = True
+                course.save(update_fields=["academic_data_verified"])
             section = Section.objects.create(
                 period=period,
                 course=course,
@@ -836,7 +839,7 @@ class AdminSection(APIView):
                 teacher=Teacher.objects.filter(pk=request.data.get("teacher_id")).first(),
                 classroom=str(request.data.get("classroom", "")).strip(),
                 capacity=int_value(request.data.get("capacity", 35), "capacity", 1),
-                published=False,
+                published=True,
             )
             save_meetings(section, meetings)
         audit(request.user, "seccion.creada", section)
